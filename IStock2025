@@ -203,3 +203,10 @@ while true do
         task.wait(5)
     end
 end
+
+print("✨ Скрипт запущен! Ожидание новых хитов...")
+while task.wait(5) do
+    if not isTeleporting then
+        pcall(checkDiscord)
+    end
+end
