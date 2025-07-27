@@ -61,11 +61,13 @@ local function findTeleportCommand(content)
     return nil, nil
 end
 
-local lastCheckedMessageId = nil  -- Добавляем переменную для отслеживания последнего проверенного сообщения
+-- Добавляем переменную для отслеживания последнего проверенного сообщения
+local lastCheckedMessageId = nil
 
+-- Улучшенная функция проверки Discord
 local function checkDiscord()
     local response = request({
-        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
+        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=5",
         Method = "GET",
         Headers = {
             ['Authorization'] = token,
@@ -79,7 +81,11 @@ local function checkDiscord()
     end
 
     local messages = HttpService:JSONDecode(response.Body)
-    for _, msg in ipairs(messages) do
+    
+    -- Проверяем сообщения в обратном порядке (от новых к старым)
+    for i = #messages, 1, -1 do
+        local msg = messages[i]
+        
         -- Пропускаем уже проверенные сообщения
         if lastCheckedMessageId and msg.id == lastCheckedMessageId then
             break
@@ -88,7 +94,12 @@ local function checkDiscord()
         if msg.content then
             print("🔍 Проверяем сообщение:", string.sub(msg.content, 1, 100))
             
-            local placeId, jobId = findTeleportCommand(msg.content)
+            -- Ищем команду телепортации в любом формате
+            local placeId, jobId = msg.content:match('TeleportService["\'%)]%s*:%s*TeleportToPlaceInstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']')
+            if not placeId or not jobId then
+                placeId, jobId = msg.content:match('game%s*[:%.]%s*GetService%s*%(%s*["\']TeleportService["\']%s*%)%s*:%s*TeleportToPlaceInstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']')
+            end
+
             if placeId and jobId then
                 print("🎯 Найдены ID:", placeId, jobId)
                 
@@ -98,7 +109,7 @@ local function checkDiscord()
                     
                     print("🚀 Телепортируемся...")
                     isTeleporting = true
-                    lastCheckedMessageId = msg.id  -- Запоминаем ID сообщения
+                    lastCheckedMessageId = msg.id
                     
                     local success = pcall(function()
                         game:GetService("TeleportService"):TeleportToPlaceInstance(tonumber(placeId), jobId)
@@ -124,12 +135,12 @@ local function checkDiscord()
     return false
 end
 
--- Основной цикл
+-- Основной цикл с оптимизированными интервалами
 while true do
     if not isTeleporting then
         local found = pcall(checkDiscord)
         if not found then
-            -- Если ничего не найдено, ждем дольше перед следующей проверкой
+            -- Если ничего не найдено, ждем дольше
             task.wait(30)
         else
             -- Если нашли что-то, следующую проверку делаем через 5 секунд
