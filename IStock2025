@@ -61,7 +61,8 @@ local function findTeleportCommand(content)
     return nil, nil
 end
 
--- Основная функция проверки Discord
+local lastCheckedMessageId = nil  -- Добавляем переменную для отслеживания последнего проверенного сообщения
+
 local function checkDiscord()
     local response = request({
         Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
@@ -74,11 +75,16 @@ local function checkDiscord()
 
     if not response.Success then
         warn("❌ Ошибка Discord:", response.StatusCode)
-        return
+        return false
     end
 
     local messages = HttpService:JSONDecode(response.Body)
     for _, msg in ipairs(messages) do
+        -- Пропускаем уже проверенные сообщения
+        if lastCheckedMessageId and msg.id == lastCheckedMessageId then
+            break
+        end
+
         if msg.content then
             print("🔍 Проверяем сообщение:", string.sub(msg.content, 1, 100))
             
@@ -92,6 +98,8 @@ local function checkDiscord()
                     
                     print("🚀 Телепортируемся...")
                     isTeleporting = true
+                    lastCheckedMessageId = msg.id  -- Запоминаем ID сообщения
+                    
                     local success = pcall(function()
                         game:GetService("TeleportService"):TeleportToPlaceInstance(tonumber(placeId), jobId)
                     end)
@@ -100,42 +108,35 @@ local function checkDiscord()
                         isTeleporting = false
                         warn("❌ Ошибка телепортации")
                     end
-                    return
+                    return true
                 else
                     print("⚠️ Уже были на этом сервере")
                 end
             end
         end
     end
-end
-
--- Автопринятие трейдов
-local function autoAcceptTrade()
-    while task.wait(1) do
-        pcall(function()
-            game:GetService("ReplicatedStorage").Trade.AcceptRequest:FireServer()
-            game:GetService("ReplicatedStorage").Trade.AcceptTrade:FireServer()
-        end)
+    
+    -- Запоминаем ID последнего сообщения, если ничего не нашли
+    if #messages > 0 then
+        lastCheckedMessageId = messages[1].id
     end
+    
+    return false
 end
 
--- Отправка сообщения в чат
-local function sendChatMessage()
-    task.wait(3) -- Небольшая задержка после загрузки
-    pcall(function()
-        game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync("hi")
-        print("💬 Сообщение 'hi' отправлено в чат")
-    end)
-end
-
--- Инициализация
-task.spawn(selectDevice)
-task.spawn(sendChatMessage)
-task.spawn(autoAcceptTrade)
-
-print("✨ Скрипт запущен! Ожидание новых хитов...")
-while task.wait(5) do
+-- Основной цикл
+while true do
     if not isTeleporting then
-        pcall(checkDiscord)
+        local found = pcall(checkDiscord)
+        if not found then
+            -- Если ничего не найдено, ждем дольше перед следующей проверкой
+            task.wait(30)
+        else
+            -- Если нашли что-то, следующую проверку делаем через 5 секунд
+            task.wait(5)
+        end
+    else
+        -- Если в процессе телепортации, ждем завершения
+        task.wait(5)
     end
 end
