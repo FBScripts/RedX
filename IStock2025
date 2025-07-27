@@ -1,6 +1,3 @@
-token = "MTM0OTI5MjY1MjAzNzY2ODg2NQ.Gm1HqC.tuyG9pZUsOOyKz5ZaYOf_Zs8xz3xxokeS2w5PY"
-channelId = "1399070018939125903"
-
 if not game:IsLoaded() then
 	game.Loaded:Wait() -- Wait for game to load
 end
